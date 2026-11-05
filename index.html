@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stone Town Archive</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* ===== EDIT HERE: look and feel ===== */
+:root{--bg:#f6f4ef;--panel:#fffdf8;--ink:#222;--mute:#6b675e;--line:#ddd7c9;--accent:#222}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;font:14px/1.4 Arial,Helvetica,sans-serif;color:var(--ink);background:var(--bg)}
+#app{display:grid;grid-template-columns:300px 1fr 360px;height:100%}
+#side,#detail{background:var(--panel);overflow:auto;padding:14px}
+#side{border-right:1px solid var(--line)}#detail{border-left:1px solid var(--line)}
+#map{height:100%;min-height:300px}
+h1{font-size:16px;margin:0 0 2px}h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:16px 0 6px}
+.sub{color:var(--mute);font-size:12px;margin-bottom:10px}
+label{display:flex;gap:6px;align-items:center;margin:3px 0;cursor:pointer}
+.sw{width:12px;height:12px;border-radius:50%;display:inline-block;flex:none}
+.row{display:flex;gap:8px;align-items:center}
+input[type=range]{width:100%}
+.stat{font-size:12px;color:var(--mute)}
+.day-col{margin-bottom:12px}.day-col h3{margin:0 0 6px;font-size:13px;display:flex;gap:6px;align-items:center}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.th{position:relative;aspect-ratio:1;background:#ddd;border-radius:3px;overflow:hidden;cursor:pointer}
+.th img{width:100%;height:100%;object-fit:cover;display:block}
+.th .tm{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);color:#fff;font-size:10px;padding:1px 3px}
+.th .ty{position:absolute;top:2px;right:3px;color:#fff;font-size:11px;text-shadow:0 0 3px #000}
+.noimg{display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:#555;padding:2px;text-align:center}
+button{font:inherit;padding:4px 9px;border:1px solid var(--line);background:#fff;border-radius:4px;cursor:pointer}
+button:hover{background:#eee}
+.tag{display:inline-block;font-size:11px;padding:0 5px;border-radius:3px;background:#eee;color:#444;margin-right:3px}
+#lb{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;z-index:2000;flex-direction:column;color:#fff}
+#lb .box{max-width:92vw;max-height:80vh}#lb img,#lb video{max-width:92vw;max-height:80vh;display:block}
+#lb .cap{margin-top:8px;font-size:13px}#lb .x{position:absolute;top:10px;right:16px;font-size:26px;cursor:pointer}
+.pie{filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
+.leaflet-container{font:inherit}
+
+.tabs{display:flex;flex-wrap:wrap;gap:2px;margin:8px 0 10px;border-bottom:1px solid var(--line)}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:4px 7px;color:var(--mute)}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:700}
+.mom{margin:0 0 14px}.mom h3{font-size:13px;margin:0 0 4px}.read{font-size:12.5px;color:#333;margin:4px 0 6px}
+table.t{border-collapse:collapse;width:100%;font-size:12px}table.t td,table.t th{border-bottom:1px solid var(--line);padding:3px 4px;text-align:left;vertical-align:top}
+.ann{width:100%;border-radius:3px;cursor:zoom-in;display:block}.cap{font-size:11px;color:var(--mute);margin:2px 0 8px}
+.warn{background:#fff3d6;border-left:3px solid #E69F00;padding:5px 8px;font-size:12px;margin:6px 0}
+.pt{margin:8px 0}.pt b{display:block}.lim{font-size:11.5px;color:var(--mute)}
+@media(max-width:900px){#app{grid-template-columns:1fr;grid-template-rows:auto 60vh auto}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side">
+    <h1>Stone Town Archive</h1>
+    <div class="sub" id="gen"></div>
+
+    <h2>Days</h2><div id="days"></div>
+    <h2>Show</h2>
+    <label><input type="checkbox" id="fPhoto" checked> Photos</label>
+    <label><input type="checkbox" id="fVideo" checked> Videos</label>
+    <label><input type="checkbox" id="fTracks" checked> Strava tracks</label>
+    <label><input type="checkbox" id="fPlaces" checked> Named places</label>
+    <label><input type="checkbox" id="fSketch" checked> Sketches</label>
+
+    <h2>Overlap</h2>
+    <label><input type="checkbox" id="fOverlap"> Only spots visited on 2+ days</label>
+    <div class="row"><span class="stat" style="width:90px">Spot size</span><input type="range" id="cell" min="10" max="80" step="5" value="25"><span class="stat" id="cellv" style="width:40px">25 m</span></div>
+    <div class="stat">Media within one spot are grouped. Pie slices show how many came from each day. Two or more colours means you were there on more than one day. Not the same as "same mood": it only says the same place.</div>
+
+    <h2>Time of day</h2>
+    <div class="row"><input type="range" id="h0" min="0" max="24" step="0.5" value="0"><input type="range" id="h1" min="0" max="24" step="0.5" value="24"></div>
+    <div class="stat" id="hv">00:00 – 24:00</div>
+
+    <h2>Location quality</h2>
+    <label><input type="checkbox" id="fTrackLoc" checked> Placed from Strava track (estimate)</label>
+    <label><input type="checkbox" id="fOverride" checked> Placed by hand (overrides.csv)</label>
+    <div class="row"><span class="stat" style="width:110px">Ignore GPS worse than</span><input type="range" id="acc" min="5" max="100" step="5" value="100"><span class="stat" id="accv" style="width:50px">any</span></div>
+
+    <h2>Base map</h2>
+    <select id="base" style="width:100%;padding:4px">
+      <option value="osm">Street (OpenStreetMap)</option>
+      <option value="light">Light grey (Esri)</option>
+      <option value="sat">Satellite (Esri)</option>
+    </select>
+
+    <h2>Summary</h2>
+    <div class="stat" id="sum"></div>
+    <h2>Tips</h2>
+    <div class="stat">Click a spot to see everything taken there, split by day. Right-click the map to copy coordinates (for data/notes.js). Add places and sketches in data/notes.js; fix wrong locations in data/overrides.csv.</div>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="detail"><div class="stat">Click a spot on the map.</div></div>
+</div>
+
+<div id="lb"><span class="x" onclick="closeLB()">×</span><div class="box" id="lbbox"></div><div class="cap" id="lbcap"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="data/archive.js"></script>
+<script src="data/notes.js"></script>
+<script src="data/cases.js"></script>
+<script>
+/* ===== EDIT HERE: settings ===== */
+const CFG = {center:[-6.1635,39.1890], zoom:16, minPie:9, maxPie:30};
+
+const A = window.ARCHIVE || {days:[],media:[],tracks:[]};
+const PLACES = window.PLACES || [], SKETCHES = (window.SKETCHES || []).concat(A.sketches || []);
+const dayColor = {}, dayLabel = {};
+A.days.forEach(d=>{dayColor[d.id]=d.color; dayLabel[d.id]=d.label});
+const colorOf = d => dayColor[d] || '#555';
+const $ = id => document.getElementById(id);
+
+/* ---------- map ---------- */
+const map = L.map('map',{zoomControl:true}).setView(CFG.center,CFG.zoom);
+const bases = {
+  light:L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:16,attribution:'Esri, HERE, Garmin, OpenStreetMap contributors'}),
+  osm:L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}),
+  sat:L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Esri'})
+};
+let baseLayer = bases.osm.addTo(map);
+$('base').onchange = e => {map.removeLayer(baseLayer); baseLayer = bases[e.target.value].addTo(map); baseLayer.bringToBack();};
+
+const trackLayer = L.layerGroup().addTo(map), spotLayer = L.layerGroup().addTo(map),
+      placeLayer = L.layerGroup().addTo(map), sketchLayer = L.layerGroup().addTo(map);
+
+map.on('contextmenu',e=>{
+  const s = e.latlng.lat.toFixed(6)+', '+e.latlng.lng.toFixed(6);
+  L.popup().setLatLng(e.latlng).setContent('<b>'+s+'</b><br><small>copied</small>').openOn(map);
+  navigator.clipboard && navigator.clipboard.writeText(s).catch(()=>{});
+});
+
+/* ---------- state ---------- */
+const hiddenDays = new Set();
+function filtered(){
+  const h0=+$('h0').value, h1=+$('h1').value, acc=+$('acc').value;
+  return A.media.filter(m=>{
+    if(hiddenDays.has(m.day)) return false;
+    if(m.type==='photo' && !$('fPhoto').checked) return false;
+    if(m.type==='video' && !$('fVideo').checked) return false;
+    if(m.src==='track' && !$('fTrackLoc').checked) return false;
+    if(m.src==='override' && !$('fOverride').checked) return false;
+    if(m.h<h0 || m.h>h1) return false;
+    if(acc<100 && m.src==='gps' && m.acc!=null && m.acc>acc) return false;
+    return true;
+  });
+}
+
+/* ---------- grid cells in metres ---------- */
+function cluster(items,cellM){
+  const lat0 = items.length ? items.reduce((s,m)=>s+m.lat,0)/items.length : CFG.center[0];
+  const kx = 111320*Math.cos(lat0*Math.PI/180), ky = 110574, cells = new Map();
+  items.forEach(m=>{
+    const k = Math.floor(m.lon*kx/cellM)+'_'+Math.floor(m.lat*ky/cellM);
+    if(!cells.has(k)) cells.set(k,[]);
+    cells.get(k).push(m);
+  });
+  return [...cells.values()].map(arr=>{
+    const byDay={}; arr.forEach(m=>(byDay[m.day]=byDay[m.day]||[]).push(m));
+    return {items:arr, byDay, days:Object.keys(byDay).sort(),
+            lat:arr.reduce((s,m)=>s+m.lat,0)/arr.length, lon:arr.reduce((s,m)=>s+m.lon,0)/arr.length};
+  });
+}
+
+function pieSVG(c,r){
+  const total=c.items.length, d=r*2, ctr=r;
+  const ring = c.days.length>1 ? '#111' : '#fff', rw = c.days.length>1 ? 2.5 : 1.5;
+  let s='<svg class="pie" width="'+(d+6)+'" height="'+(d+6)+'" viewBox="-3 -3 '+(d+6)+' '+(d+6)+'">';
+  if(c.days.length===1){
+    s+='<circle cx="'+ctr+'" cy="'+ctr+'" r="'+r+'" fill="'+colorOf(c.days[0])+'" stroke="'+ring+'" stroke-width="'+rw+'"/>';
+  } else {
+    let a0=-Math.PI/2;
+    c.days.forEach(day=>{
+      const n=c.byDay[day].length, a1=a0+2*Math.PI*n/total;
+      const x0=ctr+r*Math.cos(a0), y0=ctr+r*Math.sin(a0), x1=ctr+r*Math.cos(a1), y1=ctr+r*Math.sin(a1);
+      s+='<path d="M'+ctr+' '+ctr+' L'+x0+' '+y0+' A'+r+' '+r+' 0 '+(a1-a0>Math.PI?1:0)+' 1 '+x1+' '+y1+'Z" fill="'+colorOf(day)+'"/>';
+      a0=a1;
+    });
+    s+='<circle cx="'+ctr+'" cy="'+ctr+'" r="'+r+'" fill="none" stroke="'+ring+'" stroke-width="'+rw+'"/>';
+  }
+  if(total>1) s+='<text x="'+ctr+'" y="'+(ctr+4)+'" text-anchor="middle" font-size="'+Math.max(9,r*0.7)+'" font-family="Arial" font-weight="700" fill="#fff" stroke="#000" stroke-width=".6" paint-order="stroke">'+total+'</text>';
+  return s+'</svg>';
+}
+
+/* ---------- draw ---------- */
+let selected = null;
+function draw(){
+  const items = filtered(), cellM=+$('cell').value;
+  $('cellv').textContent = cellM+' m';
+  const a=+$('acc').value; $('accv').textContent = a>=100?'any':a+' m';
+  $('hv').textContent = fmtH(+$('h0').value)+' – '+fmtH(+$('h1').value);
+
+  spotLayer.clearLayers();
+  let cells = cluster(items,cellM);
+  const total = cells.length, ov = cells.filter(c=>c.days.length>1).length;
+  if($('fOverlap').checked) cells = cells.filter(c=>c.days.length>1);
+  const maxN = Math.max(1,...cells.map(c=>c.items.length));
+  cells.sort((x,y)=>y.items.length-x.items.length); // big first so small stay clickable on top
+  cells.reverse();
+  cells.forEach(c=>{
+    const r = CFG.minPie + (CFG.maxPie-CFG.minPie)*Math.sqrt(c.items.length/maxN);
+    const icon = L.divIcon({html:pieSVG(c,r),className:'',iconSize:[r*2+6,r*2+6],iconAnchor:[r+3,r+3]});
+    const mk = L.marker([c.lat,c.lon],{icon,riseOnHover:true}).addTo(spotLayer);
+    mk.on('click',()=>showSpot(c));
+    mk.bindTooltip(c.items.length+' item'+(c.items.length>1?'s':'')+' · '+c.days.map(d=>dayLabel[d]).join(', '));
+  });
+
+  trackLayer.clearLayers();
+  if($('fTracks').checked) A.tracks.forEach(t=>{
+    if(hiddenDays.has(t.day)) return;
+    L.polyline(t.pts.map(p=>[p[0],p[1]]),{color:colorOf(t.day),weight:3,opacity:.55}).addTo(trackLayer)
+      .bindTooltip(t.name+' · '+(dayLabel[t.day]||t.day));
+  });
+
+  placeLayer.clearLayers();
+  if($('fPlaces').checked) PLACES.forEach(p=>{
+    if(p.day && hiddenDays.has(p.day)) return;
+    L.marker([p.lat,p.lon],{icon:L.divIcon({className:'',html:'<div style="display:inline-block;background:#111;color:#fff;font-size:11px;padding:2px 6px;border-radius:10px;white-space:nowrap;transform:translate(-50%,-130%)">'+esc(p.name)+'</div>',iconSize:[0,0]})})
+      .addTo(placeLayer).on('click',()=>showPlace(p));
+  });
+
+  sketchLayer.clearLayers();
+  if($('fSketch').checked) SKETCHES.forEach(s=>{
+    L.marker([s.lat,s.lon],{icon:L.divIcon({className:'',html:'<div style="font-size:22px;transform:translate(-50%,-50%);text-shadow:0 0 3px #fff">✎</div>',iconSize:[0,0]})})
+      .addTo(sketchLayer).on('click',()=>showSketch(s));
+  });
+
+  $('sum').innerHTML = items.length+' of '+A.media.length+' items shown<br>'+total+' spots, <b>'+ov+'</b> with 2+ days'
+    + A.days.map(d=>'<br><span class="sw" style="background:'+d.color+'"></span> '+d.label+': '+items.filter(m=>m.day===d.id).length).join('');
+}
+const fmtH = h => String(Math.floor(h)).padStart(2,'0')+':'+(h%1?'30':'00');
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- detail panel ---------- */
+function thumbHTML(m,i){
+  const img = m.thumb ? '<img loading="lazy" src="'+esc(m.thumb)+'">' : '<div class="noimg">'+esc(m.name)+'</div>';
+  return '<div class="th" data-id="'+m.id+'" title="'+esc(m.name)+'">'+img+'<span class="ty">'+(m.type==='video'?'▶':'')+'</span><span class="tm">'+m.time.slice(0,5)+(m.src!=='gps'?' ~':'')+'</span></div>';
+}
+function showSpot(c){
+  selected=c;
+  let h='<h1>'+c.items.length+' items at this spot</h1><div class="sub">'+c.lat.toFixed(5)+', '+c.lon.toFixed(5)+' · '+(c.days.length>1?'<b>visited on '+c.days.length+' days</b>':'one day only')+'</div>';
+  c.days.forEach(d=>{
+    const arr=c.byDay[d].slice().sort((a,b)=>a.ts-b.ts);
+    h+='<div class="day-col"><h3><span class="sw" style="background:'+colorOf(d)+'"></span>'+(dayLabel[d]||d)+' · '+arr.length+'</h3><div class="grid">'+arr.map(thumbHTML).join('')+'</div></div>';
+  });
+  const cs = CASES.filter(k=>k.spots.some(sp=>Math.hypot((sp.lat-c.lat)*110574,(sp.lon-c.lon)*111320*Math.cos(c.lat*Math.PI/180))<=sp.r+30));
+  if(cs.length) h+=cs.map(k=>'<p><button data-case="'+esc(k.id)+'">Open case: '+esc(k.title)+'</button></p>').join('');
+  const near = nearbyThings(c.lat,c.lon,60);
+  if(near) h+='<h2>Nearby (60 m)</h2>'+near;
+  $('detail').innerHTML=h;
+  $('detail').querySelectorAll('.th').forEach(el=>el.onclick=()=>openLB(A.media.find(m=>m.id===el.dataset.id)));
+  $('detail').querySelectorAll('[data-sk]').forEach(el=>el.onclick=()=>showSketch(SKETCHES.find(s=>s.id===el.dataset.sk)));
+  $('detail').querySelectorAll('[data-case]').forEach(el=>el.onclick=()=>openCase(CASES.find(k=>k.id===el.dataset.case),'raw'));
+}
+function nearbyThings(lat,lon,r){
+  const d=(a,b)=>Math.hypot((a-lat)*110574,(b-lon)*111320*Math.cos(lat*Math.PI/180));
+  let h='';
+  PLACES.filter(p=>d(p.lat,p.lon)<=r).forEach(p=>h+='<div>📍 <b>'+esc(p.name)+'</b> '+esc(p.note||'')+'</div>');
+  SKETCHES.filter(s=>d(s.lat,s.lon)<=r).forEach(s=>h+='<div>✎ <a href="#" data-sk="'+esc(s.id)+'">'+esc(s.title)+'</a> '+esc(s.date||'')+'</div>');
+  return h;
+}
+function showPlace(p){
+  $('detail').innerHTML='<h1>'+esc(p.name)+'</h1><div class="sub">'+esc(p.day?dayLabel[p.day]||p.day:'')+'</div><p>'+esc(p.note||'')+'</p>'+
+    (p.lat?'<div class="stat">'+p.lat+', '+p.lon+'</div>':'');
+}
+function showSketch(s){
+  $('detail').innerHTML='<h1>✎ '+esc(s.title)+'</h1><div class="sub">'+esc((s.date||'')+' '+(s.time||''))+'</div>'+
+    (s.image?'<img src="'+esc(s.image)+'" style="width:100%;border-radius:3px;cursor:zoom-in" onclick="openLB({type:\'photo\',file:\''+esc(s.image)+'\',name:\''+esc(s.title)+'\',day:\''+esc(s.date||'')+'\',time:\''+esc(s.time||'')+'\'})">':'')+
+    (s.photoThumb?'<h2>Paired photo</h2><img src="'+esc(s.photoThumb)+'" style="width:50%;border-radius:3px">':'')+
+    '<p>'+esc(s.text||'')+'</p>';
+  map.panTo([s.lat,s.lon]);
+}
+
+/* ---------- lightbox ---------- */
+function openLB(m){
+  const box=$('lbbox');
+  box.innerHTML = m.type==='video' ? '<video controls autoplay src="'+esc(m.file)+'"></video>' : '<img src="'+esc(m.file)+'">';
+  $('lbcap').textContent = (m.name||'')+' · '+(dayLabel[m.day]||m.day||'')+' '+(m.time||'')+(m.src&&m.src!=='gps'?' (location estimated from '+m.src+')':'')+(m.acc?' · GPS ±'+m.acc+' m':'');
+  $('lb').style.display='flex';
+}
+function closeLB(){$('lb').style.display='none';$('lbbox').innerHTML='';}
+$('lb').addEventListener('click',e=>{if(e.target.id==='lb')closeLB()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLB()});
+
+/* ---------- controls ---------- */
+A.days.forEach(d=>{
+  const l=document.createElement('label');
+  l.innerHTML='<input type="checkbox" checked><span class="sw" style="background:'+d.color+'"></span>'+d.label+' <span class="stat">('+A.media.filter(m=>m.day===d.id).length+')</span>';
+  l.querySelector('input').onchange=e=>{e.target.checked?hiddenDays.delete(d.id):hiddenDays.add(d.id);draw();};
+  $('days').appendChild(l);
+});
+['fPhoto','fVideo','fTracks','fPlaces','fSketch','fOverlap','fTrackLoc','fOverride','cell','h0','h1','acc'].forEach(id=>$(id).addEventListener('input',draw));
+$('gen').textContent = A.media.length ? 'Built '+(A.generated||'')+' · '+A.media.length+' items' : 'No data yet. Put media in media/ and GPX in tracks/, then run build_archive.py';
+
+
+/* ================= CASES (results layer) ================= */
+const CASES = window.CASES || [];
+const stemOf = n => String(n).replace(/\.[^.]+$/,'').toLowerCase();
+const mediaByStem = {}; A.media.forEach(m=>mediaByStem[stemOf(m.name)]=m);
+const caseLayer = L.layerGroup().addTo(map);
+const PH = {sunrise:'after sunrise, before Dhuhr',dhuhr:'Dhuhr window (just after midday prayer)',asr:'Asr window',maghrib:'Maghrib window (after sunset)',isha:'Isha window','isha(prev night)':'night, before Fajr',fajr:'Fajr window'};
+let curCase=null, curTab='raw';
+function drawCases(){
+  caseLayer.clearLayers();
+  CASES.forEach(c=>c.spots.forEach(sp=>{
+    L.circle([sp.lat,sp.lon],{radius:sp.r,color:'#111',weight:1.5,dashArray:'5 4',fill:false}).addTo(caseLayer).on('click',()=>openCase(c,'raw'));
+    L.marker([sp.lat,sp.lon],{icon:L.divIcon({className:'',html:'<div style="display:inline-block;background:#111;color:#fff;font-size:11px;padding:2px 7px;border-radius:10px;white-space:nowrap;transform:translate(-50%,-50%);cursor:pointer">&#9678; '+esc(c.title.split(':')[0])+' · '+esc(sp.name)+'</div>',iconSize:[0,0]})})
+      .addTo(caseLayer).on('click',()=>openCase(c,'raw'));
+  }));
+}
+function openCase(c,tab){curCase=c;curTab=tab||'raw';renderCase();}
+function renderCase(){
+  const c=curCase, T=[['raw','Raw'],['sky','Clock & sky'],['machine','Machine reading'],['body','Body'],['compare','Compare']];
+  let h='<h1>'+esc(c.title)+'</h1><div class="tabs">'+T.map(t=>'<button data-t="'+t[0]+'" class="'+(t[0]===curTab?'on':'')+'">'+t[1]+'</button>').join('')+'</div>';
+  h+=({raw:tabRaw,sky:tabSky,machine:tabMachine,body:tabBody,compare:tabCompare}[curTab])(c);
+  $('detail').innerHTML=h; $('detail').scrollTop=0;
+  $('detail').querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{curTab=b.dataset.t;renderCase();});
+  $('detail').querySelectorAll('.th').forEach(el=>el.onclick=()=>{const m=mediaByStem[el.dataset.stem];m&&openLB(m)});
+  $('detail').querySelectorAll('.ann').forEach(el=>el.onclick=()=>openLB({type:'photo',file:el.dataset.img,name:el.dataset.cap,day:'',time:''}));
+  $('detail').querySelectorAll('[data-sk]').forEach(el=>el.onclick=()=>{const s=SKETCHES.find(x=>x.id===el.dataset.sk);s&&openLB({type:'photo',file:s.image,name:s.title,day:s.date,time:s.time})});
+}
+const place = (c,id)=>c.spots.find(s=>s.id===id).name;
+function momHead(c,m){return '<h3><span class="sw" style="background:'+colorOf(m.day)+'"></span>'+esc(m.label)+' <span class="stat">· '+esc(place(c,m.place))+'</span></h3>';}
+function tabRaw(c){
+  let h='<div class="stat">Every photo and video in this case, grouped by moment. Click to open.</div>';
+  c.moments.forEach(m=>{
+    h+='<div class="mom">'+momHead(c,m)+'<div class="grid">'+m.items.map(i=>{const x=mediaByStem[stemOf(i.id)];
+      return x?thumbHTML(x).replace('class="th"','class="th" data-stem="'+stemOf(i.id)+'"'):'<div class="th"><div class="noimg">'+esc(i.id)+'</div></div>';}).join('')+'</div></div>';
+  });
+  return h;
+}
+function tabSky(c){
+  // 24 h timeline per day: daylight band, prayer ticks, dots for items
+  const W=320,H=22,x=hh=>(hh/24*W);
+  const hm=t=>+t.slice(0,2)+ +t.slice(3,5)/60;
+  let h='<div class="stat">Computed from each file\'s time and GPS: sun position, solar time, prayer windows. No image processing.</div>';
+  c.moments.forEach(m=>{
+    const s=m.summary, e=s.prayer_egy;
+    let svg='<svg width="'+W+'" height="40" style="display:block;margin:4px 0"><rect x="0" y="8" width="'+W+'" height="'+H+'" fill="#2b3a55"/><rect x="'+x(hm(s.sunrise))+'" y="8" width="'+(x(hm(s.sunset))-x(hm(s.sunrise)))+'" height="'+H+'" fill="#f4e3a1"/>';
+    ['fajr','dhuhr','asr','maghrib','isha'].forEach(k=>{svg+='<line x1="'+x(hm(e[k]))+'" x2="'+x(hm(e[k]))+'" y1="4" y2="34" stroke="#111" stroke-width="1"/><text x="'+(x(hm(e[k]))+2)+'" y="38" font-size="8" fill="#555">'+k[0].toUpperCase()+'</text>';});
+    m.items.forEach(i=>{svg+='<circle cx="'+x(hm(i.time))+'" cy="19" r="3" fill="'+colorOf(m.day)+'" stroke="#fff" stroke-width="1"/>';});
+    svg+='</svg>';
+    const r=(a,b)=>a===b?a:a+' to '+b;
+    h+='<div class="mom">'+momHead(c,m)+svg+'<table class="t">'
+      +'<tr><th>Clock (Zanzibar)</th><td>'+esc(r(s.times[0],s.times[1]))+'</td></tr>'
+      +'<tr><th>Solar time</th><td>'+esc(s.solar_time)+' at start (clock is '+Math.round(s.clock_minus_solar)+' min ahead)</td></tr>'
+      +'<tr><th>Swahili hour</th><td>saa '+s.saa+'</td></tr>'
+      +'<tr><th>Sun height</th><td>'+esc(r(s.sun_elev[0],s.sun_elev[1]))+'°, bearing '+Math.round(s.sun_azim[0])+'°</td></tr>'
+      +'<tr><th>Sunrise / sunset</th><td>'+esc(s.sunrise)+' / '+esc(s.sunset)+(s.mins_to_sunset[0]>0?' ('+s.mins_to_sunset[0]+' to '+s.mins_to_sunset[1]+' min to sunset)':' ('+(-s.mins_to_sunset[0])+' min after sunset)')+'</td></tr>'
+      +'<tr><th>Prayer window</th><td>'+esc(PH[s.phase_egy]||s.phase_egy)+(s.phase_egy!==s.phase_mwl?' (MWL method: '+esc(PH[s.phase_mwl]||s.phase_mwl)+')':'')+'</td></tr>'
+      +'<tr><th>Prayer times</th><td class="stat">Egyptian: '+Object.entries(e).map(([k,v])=>k+' '+v).join(', ')+'<br>MWL: '+Object.entries(s.prayer_mwl).map(([k,v])=>k+' '+v).join(', ')+'</td></tr></table></div>';
+  });
+  return h+'<div class="stat">Bar: dark = night, yellow = daylight; black lines = Fajr, Dhuhr, Asr, Maghrib, Isha (Egyptian method).</div>';
+}
+function tabMachine(c){
+  let h='<div class="stat">What the detector and image statistics extract. Boxes are YOLOv8 detections on one frame per item.</div>';
+  c.moments.forEach(m=>{
+    const s=m.summary;
+    h+='<div class="mom">'+momHead(c,m)+'<div class="read"><b>Reading of the frames:</b> '+esc(m.read)+'</div>'
+     +'<table class="t"><tr><th>Brightness (0-255)</th><td>'+s.brightness+'</td><th>Dark pixels</th><td>'+Math.round(s.dark_frac*100)+'%</td></tr>'
+     +'<tr><th>Warmth (red/blue)</th><td>'+s.warmth+'</td><th>Edge density</th><td>'+s.edge+'</td></tr>'
+     +'<tr><th>People per frame</th><td>median '+s.persons_median+', max '+s.persons_max+'</td><th>Motion</th><td>'+(s.motion==null?'n/a':s.motion)+'</td></tr>'
+     +'<tr><th>Loudness</th><td>'+(s.volume==null?'n/a':s.volume+' dB')+'</td><th>Detected</th><td>'+esc(Object.entries(s.objects).map(([k,v])=>v+' '+k).join(', '))+'</td></tr></table>'
+     +'<div class="grid" style="margin-top:6px">'+m.items.map(i=>'<div><img class="ann" data-img="'+esc(i.img)+'" data-cap="'+esc(i.id+' · detections')+'" loading="lazy" src="'+esc(i.img)+'"><div class="cap">'+esc(i.time.slice(0,5))+' · '+(i.persons?i.persons+' people':'no people')+'</div></div>').join('')+'</div></div>';
+  });
+  h+='<h2>Checked against the frames</h2>'+(c.misreads||[]).map(x=>'<div class="warn"><b>'+esc(x.id)+'</b> '+esc(x.note)+'</div>').join('');
+  return h;
+}
+function tabBody(c){
+  let h='<div class="stat">Your sketches and notes from this case.</div>';
+  const sk=SKETCHES.filter(s=>c.sketches.some(f=>s.image.endsWith(f)));
+  sk.forEach(s=>{const n=(c.sketch_notes||{})[s.image.replace('sketches/','')]||{};
+    h+='<div class="mom"><h3>✎ '+esc(s.title)+'</h3><div class="stat">'+esc(s.date)+' '+esc(s.time)+' · paired photo/video time.'+(n.written?' Written on page: '+esc(n.written):'')+'</div>'
+     +'<img data-sk="'+esc(s.id)+'" src="'+esc(s.image)+'" style="width:100%;border-radius:3px;cursor:zoom-in;margin:6px 0"><div class="read">'+esc(s.text)+'</div></div>';});
+  if(!sk.length) h+='<div class="warn">No sketches found for this case. Check data/sketches.csv and the sketches folder.</div>';
+  if(c.body_note) h+='<div class="warn">'+esc(c.body_note)+'</div>';
+  return h;
+}
+function tabCompare(c){
+  const M=(c.compare_ids||[]).map(id=>c.moments.find(m=>m.id===id)).filter(Boolean);
+  let h='<div class="stat">'+esc(c.compare_intro||'')+'</div>'
+   +'<table class="t"><tr><th></th>'+M.map(m=>'<th>'+esc(m.label.split(' · ')[0])+'<br>'+esc(m.label.split(' · ')[1])+'</th>').join('')+'</tr>'
+   +[['Sun height',m=>m.summary.sun_elev[0]+'°'],['Swahili hour',m=>'saa '+m.summary.saa],['Prayer window',m=>PH[m.summary.phase_egy]],['Brightness',m=>m.summary.brightness],['Warmth (R/B)',m=>m.summary.warmth],['Edge density',m=>m.summary.edge],['People, median',m=>m.summary.persons_median],['Loudness (dB)',m=>m.summary.volume==null?'n/a':m.summary.volume],
+     ['Detected',m=>Object.entries(m.summary.objects).slice(0,5).map(([k,v])=>v+' '+k).join(', ')]].map(r=>'<tr><th>'+r[0]+'</th>'+M.map(m=>'<td>'+esc(r[1](m))+'</td>').join('')+'</tr>').join('')+'</table>'
+   +'<div class="grid" style="margin:8px 0">'+M.map(m=>{const i=m.items[Math.floor(m.items.length/2)];return '<div><img class="ann" data-img="'+esc(i.img)+'" data-cap="'+esc(i.id)+'" src="'+esc(i.img)+'"><div class="cap">'+esc(i.time.slice(0,5))+'</div></div>'}).join('')+'</div>'
+   +'<h2>Points to discuss</h2>'+(c.discussion||[]).map(p=>'<div class="pt"><b>'+esc(p.head)+'</b>'+esc(p.body)+'</div>').join('')
+   +'<h2>Method and limits</h2><ul class="lim">'+(c.limits||[]).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';
+  return h;
+}
+drawCases();
+
+draw();
+const pts=A.media.map(m=>[m.lat,m.lon]).concat(...A.tracks.map(t=>t.pts.map(p=>[p[0],p[1]])));
+if(pts.length) map.fitBounds(pts,{padding:[30,30],maxZoom:18});
+</script>
+</body>
+</html>
